@@ -7,15 +7,24 @@ Examples:
 """
 
 from decimal import Decimal
-
 from billing_engine.money import Money
-from billing_engine.discounts.base import Discount, DiscountContext
+from billing_engine.discounts.base import DiscountStrategy, DiscountContext
 
+<<<<<<< Updated upstream
 
 class PercentageDiscount(Discount):
     def __init__(self, percentage: Decimal) -> None:
         # TODO Day 1
         raise NotImplementedError("Day 1: implement PercentageDiscount.__init__")
+=======
+class PercentageDiscount(DiscountStrategy):
+    def __init__(self, percentage: Decimal):
+        if isinstance(percentage, float):
+            raise TypeError("Percentage must be a Decimal, not a float")
+        if not Decimal("0") <= percentage <= Decimal("1"):
+            raise ValueError("Percentage must be between 0 and 1")
+        self.percentage = percentage
+>>>>>>> Stashed changes
 
     def apply(self, subtotal: Money, context: DiscountContext) -> Money:
         # TODO Day 1
