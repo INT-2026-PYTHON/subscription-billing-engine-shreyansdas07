@@ -34,3 +34,4 @@ class VATCalculator(TaxCalculator):
         label = f"VAT {self.rate * 100}%"
         return TaxBreakdown(components=[(label, vat_amt)], total=vat_amt)
 >>>>>>> Stashed changes
+..

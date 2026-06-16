@@ -31,3 +31,4 @@ class UsageBased(PricingStrategy):
             raise ValueError("Quantity cannot be negative")
         return self.unit_price * quantity
 >>>>>>> Stashed changes
+..

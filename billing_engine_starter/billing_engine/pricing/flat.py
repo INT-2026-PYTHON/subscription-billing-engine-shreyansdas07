@@ -26,3 +26,4 @@ class FlatRate(PricingStrategy):
     def calculate(self, quantity: int) -> Money:
         # TODO Day 1
         raise NotImplementedError("Day 1: implement FlatRate.calculate")
+..

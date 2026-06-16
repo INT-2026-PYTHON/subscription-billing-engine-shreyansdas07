@@ -32,3 +32,4 @@ class FixedAmountDiscount(DiscountStrategy):
             raise ValueError("Currency mismatch between discount and subtotal")
         return min(self.amount, subtotal)
 >>>>>>> Stashed changes
+..

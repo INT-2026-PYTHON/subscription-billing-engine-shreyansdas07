@@ -19,3 +19,4 @@ class FirstMonthFree(DiscountStrategy):
             return subtotal
         return Money.zero(subtotal.currency)
 >>>>>>> Stashed changes
+..

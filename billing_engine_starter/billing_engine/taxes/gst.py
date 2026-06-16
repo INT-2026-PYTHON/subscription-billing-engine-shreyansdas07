@@ -65,3 +65,4 @@ class GSTCalculator(TaxCalculator):
             
         return TaxBreakdown(components=components, total=total)
 >>>>>>> Stashed changes
+..

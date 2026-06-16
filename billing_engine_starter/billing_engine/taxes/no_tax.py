@@ -13,3 +13,4 @@ class NoTax(TaxCalculator):
 =======
         return TaxBreakdown(components=[], total=Money.zero(taxable.currency))
 >>>>>>> Stashed changes
+..

@@ -93,3 +93,4 @@ class TieredPricing(PricingStrategy):
 
         return total
 >>>>>>> Stashed changes
+..

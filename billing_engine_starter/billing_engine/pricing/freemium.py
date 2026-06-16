@@ -42,3 +42,4 @@ class Freemium(PricingStrategy):
             
         return self.overage_strategy.calculate(quantity - self.free_quota)
 >>>>>>> Stashed changes
+,,

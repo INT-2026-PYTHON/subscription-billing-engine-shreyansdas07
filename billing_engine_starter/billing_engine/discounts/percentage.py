@@ -29,3 +29,4 @@ class PercentageDiscount(DiscountStrategy):
     def apply(self, subtotal: Money, context: DiscountContext) -> Money:
         # TODO Day 1
         raise NotImplementedError("Day 1: implement PercentageDiscount.apply")
+..
