@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 """
 build_invoice — PURE function that turns inputs into an Invoice dataclass.
 
@@ -73,4 +74,106 @@ def build_invoice(
         total_amount=total_amount,
         status=InvoiceStatus.DRAFT,
         line_items=line_items
+=======
+from datetime import date
+from typing import Optional
+from billing_engine.models import (
+    Invoice,
+    InvoiceStatus,
+    InvoiceLineItem,
+    LineItemKind,
+    Plan,
+    Customer,
+)
+from billing_engine.money import Money
+
+def build_invoice(
+    subscription_id: int,
+    customer: Customer,
+    plan: Plan,
+    period_start: date,
+    period_end: date,
+    usage_quantity: int,
+    invoice_count_so_far: int,
+    strategy,          # Day 1 PricingStrategy
+    discount,          # Day 1 Discount Strategy (Optional)
+    discount_context,  # Instantiated Context
+    tax_calc,          # Day 1 Tax Calculator
+    tax_context,       # Instantiated Tax Context
+) -> Invoice:
+    """Builds an immutable Invoice instance with structured line items.
+
+    This function operates purely on domain objects, generating the complete breakdown
+    of charges, discounts, and taxes natively before saving.
+    """
+    # 1. Compute base gross charge
+    base = strategy.calculate(usage_quantity)
+    currency = base.currency
+
+    # 2. Compute discount line item
+    if discount is None:
+        discount_amount = Money.zero(currency)
+    else:
+        discount_amount = discount.apply(base, discount_context)
+
+    # 3. Handle base taxable ceiling
+    taxable = base - discount_amount
+
+    # 4. Generate tax breakdown matrices
+    breakdown = tax_calc.apply(taxable, tax_context)
+    
+    # 5. Total summation
+    total = taxable + breakdown.total
+
+    # 6. Structuring line items sequence
+    line_items = [
+        InvoiceLineItem(
+            id=None,
+            invoice_id=None,
+            description=f"{plan.name} Base Service Charge ({period_start} to {period_end})",
+            amount=base,
+            kind=LineItemKind.BASE,
+        )
+    ]
+
+    # Append discount tracking only if it actively altered the subtotal
+    if discount_amount > Money.zero(currency):
+        line_items.append(
+            InvoiceLineItem(
+                id=None,
+                invoice_id=None,
+                description="Applied Discount Credit",
+                amount=-discount_amount,  # Must match requirement to persist as negative
+                kind=LineItemKind.DISCOUNT,
+            )
+        )
+
+    # Deconstruct and append tax calculations dynamically
+    for label, amt in breakdown.components:
+        line_items.append(
+            InvoiceLineItem(
+                id=None,
+                invoice_id=None,
+                description=label,
+                amount=amt,
+                kind=LineItemKind.TAX,
+            )
+        )
+
+    # 7. Unify everything inside a transient draft invoice
+    return Invoice(
+        id=None,
+        subscription_id=subscription_id,
+        period_start=period_start,
+        period_end=period_end,
+        currency=currency,
+        subtotal=base,
+        discount_total=discount_amount,
+        tax_total=breakdown.total,
+        total=total,
+        status=InvoiceStatus.DRAFT,
+        issued_at=None,
+        pdf_path=None,
+        line_items=line_items,  # Attaching nested array structure for validation passes
+>>>>>>> Stashed changes
     )
