@@ -275,5 +275,71 @@ class PaymentAttemptRepository:
         raise NotImplementedError("Day 3: implement PaymentAttemptRepository.list_for_invoice")
 
     def count_for_invoice(self, invoice_id: int) -> int:
+<<<<<<< Updated upstream
         # TODO Day 3.
         raise NotImplementedError("Day 3: implement PaymentAttemptRepository.count_for_invoice")
+=======
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT COUNT(*) as count FROM payment_attempts WHERE invoice_id = ?;", (invoice_id,)).fetchone()
+            return row["count"]
+# Inside billing_engine/db/repository.py
+
+# --- Subscription Repository Additions ---
+def update_status(
+    self,
+    subscription_id: int,
+    new_status: SubscriptionStatus,
+    past_due_since: Optional[date] = None,
+) -> None:
+    with self.db.transaction() as conn:
+        q.update_subscription_status(
+            conn, 
+            subscription_id, 
+            new_status.value, 
+            past_due_since.isoformat() if past_due_since else None
+        )
+
+def update_period(self, subscription_id: int, new_start: date, new_end: date) -> None:
+    with self.db.transaction() as conn:
+        q.update_subscription_period(conn, subscription_id, new_start.isoformat(), new_end.isoformat())
+
+# --- Invoice Repository Additions ---
+def count_for_subscription(self, subscription_id: int) -> int:
+    with self.db.connect() as conn:
+        return q.count_invoices_for_subscription(conn, subscription_id)
+
+# --- Ledger Repository Implementation ---
+class LedgerRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def add(self, entry: LedgerEntry) -> LedgerEntry:
+        with self.db.transaction() as conn:
+            entry_id = q.insert_ledger_entry(
+                conn,
+                invoice_id=entry.invoice_id,
+                customer_id=entry.customer_id,
+                amount=entry.amount.to_storage(),
+                currency=entry.currency,
+                direction=entry.direction.value,
+                reason=entry.reason
+            )
+            entry.id = entry_id
+            return entry
+
+    def list_for_customer(self, customer_id: int) -> list[LedgerEntry]:
+        with self.db.connect() as conn:
+            rows = q.select_ledger_for_customer(conn, customer_id)
+            return [
+                LedgerEntry(
+                    id=row["id"],
+                    invoice_id=row["invoice_id"],
+                    customer_id=row["customer_id"],
+                    amount=Money.from_storage(row["amount"], row["currency"]),
+                    currency=row["currency"],
+                    direction=LedgerDirection(row["direction"]),
+                    reason=row["reason"]
+                )
+                for row in rows
+            ]
+>>>>>>> Stashed changes
