@@ -1,51 +1,64 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal
+from datetime import date, datetime, timedelta
+from enum import Enum
+from typing import NamedTuple, Optional
 
-from billing_engine.money import Money
-from billing_engine.taxes.base import TaxCalculator, TaxContext
+from billing_engine.models import LedgerEntry, LedgerDirection, SubscriptionStatus, Invoice
 
+class DunningState(Enum):
+    SUCCEEDED = "SUCCEEDED"
+    RETRYING = "RETRYING"
+    FAILED_FINAL = "FAILED_FINAL"
 
-@dataclass(frozen=True)
-class ProrationResult:
-    credit_amount: Money     
-    charge_amount: Money     
-    credit_tax: Money        
-    charge_tax: Money        
+class DunningOutcome(NamedTuple):
+    state: DunningState
+    attempt_no: int
+    next_retry_at: Optional[datetime]
 
+MAX_ATTEMPTS = 3
+RETRY_DELAYS_DAYS = {1: 1, 2: 3, 3: 7}  # Map attempt_no to wait durations
 
-def compute_proration(
-    old_plan_price: Money,
-    new_plan_price: Money,
-    period_start: date,
-    period_end: date,
-    switch_date: date,
-    tax_calc: TaxCalculator,
-    tax_context: TaxContext,
-) -> ProrationResult:
-    if not (period_start <= switch_date <= period_end):
-        raise ValueError("switch_date must fall within period_start and period_end")
+class DunningProcess:
+    def __init__(self, gateway, invoice_repo, attempt_repo, subscription_repo, ledger_repo):
+        self.gateway = gateway
+        self.invoice_repo = invoice_repo
+        self.attempt_repo = attempt_repo
+        self.subscription_repo = subscription_repo
+        self.ledger_repo = ledger_repo
 
-    total_days = (period_end - period_start).days
-    if total_days <= 0:
-        raise ValueError("Invalid period: period_end must be after period_start")
+    def attempt(self, invoice: Invoice, customer_id: int, now: datetime) -> DunningOutcome:
+        attempt_no = self.attempt_repo.count_for_invoice(invoice.id) + 1
+        result = self.gateway.charge(invoice)
 
-    used_days = (switch_date - period_start).days
-    remaining_days = total_days - used_days
+        if result.success:
+            self.invoice_repo.mark_paid(invoice.id)
+            self.ledger_repo.add(LedgerEntry(
+                id=None, invoice_id=invoice.id, customer_id=customer_id,
+                amount=invoice.total_amount, currency=invoice.subtotal.currency,
+                direction=LedgerDirection.CREDIT,
+                reason=f"Payment received for invoice {invoice.id}",
+            ))
+            self.attempt_repo.add(invoice.id, attempt_no, "SUCCESS", None, None)
+            return DunningOutcome(DunningState.SUCCEEDED, attempt_no, None)
 
-    ratio = Decimal(remaining_days) / Decimal(total_days)
+        if attempt_no >= MAX_ATTEMPTS:
+            self.invoice_repo.mark_failed(invoice.id)
+            self.subscription_repo.update_status(
+                invoice.subscription_id, SubscriptionStatus.PAST_DUE,
+                past_due_since=now.date(),
+            )
+            self.attempt_repo.add(invoice.id, attempt_no, "FAILED", result.failure_reason, None)
+            return DunningOutcome(DunningState.FAILED_FINAL, attempt_no, None)
 
-    credit = old_plan_price * ratio
-    charge = new_plan_price * ratio
+        delay = RETRY_DELAYS_DAYS.get(attempt_no, 1)
+        next_retry = now + timedelta(days=delay)
+        self.attempt_repo.add(invoice.id, attempt_no, "FAILED", result.failure_reason, next_retry)
+        return DunningOutcome(DunningState.RETRYING, attempt_no, next_retry)
 
-    credit_tax_result = tax_calc.apply(credit, tax_context)
-    charge_tax_result = tax_calc.apply(charge, tax_context)
-
-    return ProrationResult(
-        credit_amount=credit,
-        charge_amount=charge,
-        credit_tax=credit_tax_result.total,
-        charge_tax=charge_tax_result.total
-    )
+    @staticmethod
+    def should_cancel(past_due_since: Optional[date], today: date, grace_days: int = 7) -> bool:
+        if past_due_since is None:
+            return False
+        return (today - past_due_since).days >= grace_daysx
