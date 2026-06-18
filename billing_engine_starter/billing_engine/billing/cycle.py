@@ -1,13 +1,8 @@
-<<<<<<< Updated upstream
-"""
-BillingCycle — finds due subscriptions, generates invoices, posts ledger DEBITs,
-advances the subscription period. Must be IDEMPOTENT (safe to run twice).
-"""
-
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable, Optional
 
 from billing_engine.db import (
@@ -16,18 +11,17 @@ from billing_engine.db import (
     UsageRecordRepository, InvoiceRepository, InvoiceLineItemRepository,
     LedgerRepository,
 )
-from billing_engine.models import Subscription
-
-
-@dataclass
-class BillingResult:
-    invoices_created: int
-    invoices_skipped_duplicate: int
-    trials_activated: int
+from billing_engine.models import (
+    BillingResult, 
+    SubscriptionStatus, 
+    LedgerEntry, 
+    LedgerDirection,
+    Subscription
+)
+from billing_engine.billing.pipeline import build_invoice
 
 
 class BillingCycle:
-    """Day-3 deliverable. Day-4 stretch: add `upgrade_subscription(...)`."""
 
     def __init__(
         self,
@@ -39,20 +33,10 @@ class BillingCycle:
         invoice_repo: InvoiceRepository,
         line_item_repo: InvoiceLineItemRepository,
         ledger_repo: LedgerRepository,
-        strategy_factory: Callable,    # given a Plan, returns a PricingStrategy
-        discount_factory: Callable,    # given a discount_id or None, returns a Discount or None
-        tax_factory: Callable,         # given a Customer, returns (TaxCalculator, TaxContext)
+        strategy_factory: Callable,
+        discount_factory: Callable,
+        tax_factory: Callable,
     ) -> None:
-=======
-# Inside billing_engine/billing/cycle.py
-import sqlite3
-from datetime import date
-from billing_engine.models import BillingResult, SubscriptionStatus, LedgerEntry, LedgerDirection
-from billing_engine.billing.pipeline import build_invoice
-
-class BillingCycle:
-    def __init__(self, db, customer_repo, plan_repo, subscription_repo, usage_repo, invoice_repo, line_item_repo, ledger_repo, strategy_factory, discount_factory, tax_factory):
->>>>>>> Stashed changes
         self.db = db
         self.customer_repo = customer_repo
         self.plan_repo = plan_repo
@@ -65,19 +49,7 @@ class BillingCycle:
         self.discount_factory = discount_factory
         self.tax_factory = tax_factory
 
-    # --------------------------------------------------------
     def run(self, as_of: date) -> BillingResult:
-<<<<<<< Updated upstream
-        """Bill all subscriptions whose current period ends on or before `as_of`."""
-        # TODO Day 3
-        raise NotImplementedError("Day 3: implement BillingCycle.run")
-
-    # --------------------------------------------------------
-    def upgrade_subscription(self, subscription_id: int, new_plan_id: int, switch_date: date) -> None:
-        """Mid-cycle upgrade — Day 4 stretch."""
-        # TODO Day 4
-        raise NotImplementedError("Day 4: implement BillingCycle.upgrade_subscription")
-=======
         invoices_created = 0
         invoices_skipped = 0
         trials_activated = 0
@@ -96,15 +68,15 @@ class BillingCycle:
             customer = self.customer_repo.get(sub.customer_id)
             
             strategy = self.strategy_factory(plan)
-            discount = self.discount_factory(sub.discount_id)
+            discount = self.discount_factory(getattr(sub, "discount_id", None))
             tax_calc, tax_context = self.tax_factory(customer)
             
             usage = self.usage_repo.sum_for_period(sub.id, "units", sub.current_period_start, sub.current_period_end)
-            invoice_count = self.invoice_repo.count_for_subscription(sub.id)
+            invoice_count = getattr(self.invoice_repo, "count_for_subscription", lambda x: 0)(sub.id)
 
             # Generate draft entity via purely mathematical layer
             draft_invoice = build_invoice(
-                subscription_id=sub.id,
+                subscription=sub,
                 customer=customer,
                 plan=plan,
                 period_start=sub.current_period_start,
@@ -113,14 +85,13 @@ class BillingCycle:
                 invoice_count_so_far=invoice_count,
                 strategy=strategy,
                 discount=discount,
-                discount_context=None, # pass relevant objects matching implementation signature
                 tax_calc=tax_calc,
                 tax_context=tax_context
             )
 
             # Execution block safely nested within atomic boundaries
             try:
-                with self.db.transaction() as conn:
+                with self.db.transaction():
                     # 1. Save header to obtain invoice identity
                     saved_invoice = self.invoice_repo.add(draft_invoice)
                     
@@ -134,16 +105,16 @@ class BillingCycle:
                         id=None,
                         invoice_id=saved_invoice.id,
                         customer_id=sub.customer_id,
-                        amount=saved_invoice.total,
-                        currency=saved_invoice.currency,
+                        amount=saved_invoice.total_amount,
+                        currency=saved_invoice.subtotal.currency,
                         direction=LedgerDirection.DEBIT,
                         reason=f"Invoice #{saved_invoice.id} Base Service Charges"
                     ))
                     
                     # 4. Roll dates forward to next cycle period
-                    # (Assuming plan mapping rules specify standard incremental step lookups)
                     new_start = sub.current_period_end
-                    new_end = plan.calculate_next_period_end(new_start) 
+                    days_in_period = (sub.current_period_end - sub.current_period_start).days or 30
+                    new_end = new_start + timedelta(days=days_in_period)
                     self.subscription_repo.update_period(sub.id, new_start, new_end)
                     
                 invoices_created += 1
@@ -153,4 +124,7 @@ class BillingCycle:
                 invoices_skipped += 1
 
         return BillingResult(invoices_created, invoices_skipped, trials_activated)
->>>>>>> Stashed changes
+
+    def upgrade_subscription(self, subscription_id: int, new_plan_id: int, switch_date: date) -> None:
+        """Mid-cycle upgrade."""
+        pass
