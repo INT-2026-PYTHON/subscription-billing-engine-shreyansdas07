@@ -1,22 +1,34 @@
 from __future__ import annotations
 
+import sqlite3
+from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
 
 from billing_engine.db.database import Database
 from billing_engine.money import Money
 from billing_engine.models import (
     Customer,
-    Plan, PricingType, BillingPeriod,
-    Subscription, SubscriptionStatus,
-    Invoice, InvoiceStatus, InvoiceLineItem, LineItemKind,
-    LedgerEntry, LedgerDirection,
+    Plan,
+    PlanTier,
+    PricingType,
+    BillingPeriod,
+    Discount,
+    DiscountType,
+    Subscription,
+    SubscriptionStatus,
+    Invoice,
+    InvoiceLineItem,
+    InvoiceStatus,
+    LineItemKind,
+    LedgerEntry,
+    LedgerDirection,
+    PaymentAttempt,
+    PaymentStatus
 )
 
-
 class CustomerRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, customer: Customer) -> Customer:
@@ -75,9 +87,8 @@ class CustomerRepository:
                 ) for row in rows
             ]
 
-
 class PlanRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, plan: Plan) -> Plan:
@@ -131,9 +142,8 @@ class PlanRepository:
                 ) for row in rows
             ]
 
-
 class PlanTierRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, plan_id: int, from_units: int, to_units: Optional[int], unit_price: Money) -> int:
@@ -161,9 +171,8 @@ class PlanTierRepository:
                 for row in rows
             ]
 
-
 class DiscountRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, code: str, discount_type: str, value: str, currency: Optional[str] = None) -> int:
@@ -187,9 +196,8 @@ class DiscountRepository:
                 return None
             return dict(row)
 
-
 class SubscriptionRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, subscription: Subscription) -> Subscription:
@@ -310,9 +318,8 @@ class SubscriptionRepository:
             )
             conn.commit()
 
-
 class UsageRecordRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, subscription_id: int, metric: str, quantity: int) -> int:
@@ -346,15 +353,13 @@ class UsageRecordRepository:
             ).fetchone()
             return row["total"]
 
-
 class InvoiceRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database):
         self.db = db
 
     def add(self, invoice: Invoice) -> Invoice:
         with self.db.connect() as conn:
             cursor = conn.cursor()
-            currency = invoice.total_amount.currency
             cursor.execute(
                 """
                 INSERT INTO invoices (subscription_id, customer_id, status, period_start, period_end, subtotal, discount_total, tax_total, total_amount, pdf_path)
@@ -379,192 +384,4 @@ class InvoiceRepository:
 
     def get(self, invoice_id: int) -> Optional[Invoice]:
         with self.db.connect() as conn:
-            row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_id,)).fetchone()
-            if not row:
-                return None
-            
-            customer_row = conn.execute("SELECT currency FROM customers WHERE id = ?;", (row["customer_id"],)).fetchone()
-            currency = customer_row["currency"] if customer_row else "USD"
-
-            return Invoice(
-                id=row["id"],
-                subscription_id=row["subscription_id"],
-                customer_id=row["customer_id"],
-                status=InvoiceStatus(row["status"]),
-                period_start=date.fromisoformat(row["period_start"]),
-                period_end=date.fromisoformat(row["period_end"]),
-                subtotal=Money.from_storage(row["subtotal"], currency),
-                discount_total=Money.from_storage(row["discount_total"], currency),
-                tax_total=Money.from_storage(row["tax_total"], currency),
-                total_amount=Money.from_storage(row["total_amount"], currency),
-                pdf_path=row["pdf_path"],
-                line_items=[]
-            )
-
-    def count_for_subscription(self, subscription_id: int) -> int:
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) as count FROM invoices WHERE subscription_id = ?;",
-                (subscription_id,)
-            ).fetchone()
-            return row["count"]
-
-    def mark_paid(self, invoice_id: int) -> None:
-        with self.db.connect() as conn:
-            conn.execute(
-                "UPDATE invoices SET status = ? WHERE id = ?;",
-                (InvoiceStatus.PAID.value if hasattr(InvoiceStatus.PAID, "value") else "PAID", invoice_id)
-            )
-            conn.commit()
-
-    def mark_failed(self, invoice_id: int) -> None:
-        with self.db.connect() as conn:
-            conn.execute(
-                "UPDATE invoices SET status = ? WHERE id = ?;",
-                (InvoiceStatus.FAILED.value if hasattr(InvoiceStatus.FAILED, "value") else "FAILED", invoice_id)
-            )
-            conn.commit()
-
-    def set_pdf_path(self, invoice_id: int, path: str) -> None:
-        with self.db.connect() as conn:
-            conn.execute("UPDATE invoices SET pdf_path = ? WHERE id = ?;", (path, invoice_id))
-            conn.commit()
-
-
-class InvoiceLineItemRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def add(self, line_item: InvoiceLineItem) -> InvoiceLineItem:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO invoice_line_items (invoice_id, kind, amount, description)
-                VALUES (?, ?, ?, ?);
-                """,
-                (
-                    line_item.invoice_id,
-                    line_item.kind.value if hasattr(line_item.kind, "value") else str(line_item.kind),
-                    line_item.amount.to_storage(),
-                    line_item.description
-                )
-            )
-            line_item.id = cursor.lastrowid
-            conn.commit()
-        return line_item
-
-    def list_for_invoice(self, invoice_id: int) -> list[InvoiceLineItem]:
-        with self.db.connect() as conn:
-            invoice_row = conn.execute(
-                """
-                SELECT i.customer_id, c.currency FROM invoices i 
-                JOIN customers c ON i.customer_id = c.id 
-                WHERE i.id = ?;
-                """,
-                (invoice_id,)
-            ).fetchone()
-            currency = invoice_row["currency"] if invoice_row else "USD"
-
-            rows = conn.execute("SELECT * FROM invoice_line_items WHERE invoice_id = ?;", (invoice_id,)).fetchall()
-            return [
-                InvoiceLineItem(
-                    id=row["id"],
-                    invoice_id=row["invoice_id"],
-                    kind=LineItemKind(row["kind"]),
-                    amount=Money.from_storage(row["amount"], currency),
-                    description=row["description"]
-                ) for row in rows
-            ]
-
-
-class LedgerRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def add(self, entry: LedgerEntry) -> LedgerEntry:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO ledger_entries (customer_id, direction, amount, description, reference_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    entry.customer_id,
-                    entry.direction.value if hasattr(entry.direction, "value") else str(entry.direction),
-                    entry.amount.to_storage(),
-                    entry.description,
-                    entry.reference_id,
-                    datetime.utcnow().isoformat()
-                )
-            )
-            entry.id = cursor.lastrowid
-            conn.commit()
-        return entry
-
-    def list_for_customer(self, customer_id: int) -> list[LedgerEntry]:
-        with self.db.connect() as conn:
-            customer_row = conn.execute("SELECT currency FROM customers WHERE id = ?;", (customer_id,)).fetchone()
-            currency = customer_row["currency"] if customer_row else "USD"
-
-            rows = conn.execute("SELECT * FROM ledger_entries WHERE customer_id = ? ORDER BY id ASC;", (customer_id,)).fetchall()
-            return [
-                LedgerEntry(
-                    id=row["id"],
-                    customer_id=row["customer_id"],
-                    direction=LedgerDirection(row["direction"]),
-                    amount=Money.from_storage(row["amount"], currency),
-                    description=row["description"],
-                    reference_id=row["reference_id"]
-                ) for row in rows
-            ]
-
-    def update(self, *args, **kwargs):
-        raise NotImplementedError("Ledger is append-only. Post a reversing entry instead.")
-
-    def delete(self, *args, **kwargs):
-        raise NotImplementedError("Ledger is append-only. Post a reversing entry instead.")
-
-
-class PaymentAttemptRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def add(
-        self,
-        invoice_id: int,
-        attempt_no: int,
-        status: str,
-        failure_reason: Optional[str],
-        next_retry_at: Optional[datetime],
-    ) -> int:
-        with self.db.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO payment_attempts (invoice_id, attempt_no, status, failure_reason, next_retry_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    invoice_id,
-                    attempt_no,
-                    status,
-                    failure_reason,
-                    next_retry_at.isoformat() if next_retry_at else None,
-                    datetime.utcnow().isoformat()
-                )
-            )
-            new_id = cursor.lastrowid
-            conn.commit()
-        return new_id
-
-    def list_for_invoice(self, invoice_id: int) -> list[dict]:
-        with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM payment_attempts WHERE invoice_id = ? ORDER BY attempt_no ASC;", (invoice_id,)).fetchall()
-            return [dict(row) for row in rows]
-
-    def count_for_invoice(self, invoice_id: int) -> int:
-        with self.db.connect() as conn:
-            row = conn.execute("SELECT COUNT(*) as count FROM payment_attempts WHERE invoice_id = ?;", (invoice_id,)).fetchone()
-            return row["count"]
+            row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_
