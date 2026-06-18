@@ -1,11 +1,29 @@
 from __future__ import annotations
 
+"""
+Repositories — the ONLY place SQL lives.
+
+Each repository wraps the Database connection and exposes methods that
+take/return domain dataclasses (defined in billing_engine/models/).
+
+⚠️ YOU IMPLEMENT every method body marked TODO.
+   The signatures, docstrings, and the LedgerRepository's append-only
+   guarantee are already in place — do not change them.
+
+Conventions:
+  - Always use parameterized queries (`?` placeholders) — NEVER f-string SQL.
+  - Money values are persisted as TEXT using `money.to_storage()`.
+  - Dates are persisted as ISO strings (`date.isoformat()`).
+"""
+
+import json
 import sqlite3
-from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
+from typing import List, Optional
 
 from billing_engine.db.database import Database
+from billing_engine.db import queries as q
 from billing_engine.money import Money
 from billing_engine.models import (
     Customer,
@@ -384,4 +402,4 @@ class InvoiceRepository:
 
     def get(self, invoice_id: int) -> Optional[Invoice]:
         with self.db.connect() as conn:
-            row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_
+            row = conn.execute("SELECT * FROM invoices WHERE id = ?;", (invoice_id,)).fetchone()

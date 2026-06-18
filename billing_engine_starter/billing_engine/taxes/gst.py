@@ -1,15 +1,14 @@
 from decimal import Decimal
-
 from billing_engine.money import Money
 from billing_engine.taxes.base import TaxCalculator, TaxContext, TaxBreakdown
 
-
 class GSTCalculator(TaxCalculator):
-
     def __init__(self, cgst: Decimal, sgst: Decimal, igst: Decimal) -> None:
-        for name, rate in [("cgst", cgst), ("sgst", sgst), ("igst", igst)]:
+        for rate in (cgst, sgst, igst):
+            if isinstance(rate, float):
+                raise TypeError("Rates must be Decimal, not float")
             if not (Decimal("0.00") <= rate <= Decimal("1.00")):
-                raise ValueError(f"{name} rate must be between 0.00 and 1.00")
+                raise ValueError("Rates must be between 0.00 and 1.00")
                 
         if cgst + sgst != igst:
             raise ValueError(f"Invalid GST configuration: CGST ({cgst}) + SGST ({sgst}) must equal IGST ({igst})")
