@@ -1,24 +1,6 @@
-"""
-FixedAmountDiscount — e.g., flat ₹500 off.
-
-CAPPING RULE: if the fixed amount exceeds the subtotal, return subtotal
-(so the discounted total never goes below zero).
-"""
-
 from billing_engine.money import Money
 from billing_engine.discounts.base import DiscountStrategy, DiscountContext
 
-<<<<<<< Updated upstream
-
-class FixedAmountDiscount(Discount):
-    def __init__(self, amount: Money) -> None:
-        # TODO Day 1
-        raise NotImplementedError("Day 1: implement FixedAmountDiscount.__init__")
-
-    def apply(self, subtotal: Money, context: DiscountContext) -> Money:
-        # TODO Day 1
-        raise NotImplementedError("Day 1: implement FixedAmountDiscount.apply")
-=======
 class FixedAmountDiscount(DiscountStrategy):
     def __init__(self, amount: Money):
         if not isinstance(amount, Money):
@@ -29,7 +11,6 @@ class FixedAmountDiscount(DiscountStrategy):
 
     def apply(self, subtotal: Money, context: DiscountContext) -> Money:
         if self.amount.currency != subtotal.currency:
-            raise ValueError("Currency mismatch between discount and subtotal")
+            raise ValueError(f"Currency mismatch: discount is in {self.amount.currency}, but subtotal is in {subtotal.currency}")
+            
         return min(self.amount, subtotal)
->>>>>>> Stashed changes
-..

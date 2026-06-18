@@ -1,16 +1,3 @@
-"""
-build_invoice — PURE function that turns inputs into an Invoice dataclass.
-
-⚠️ NO database calls here. No `datetime.now()`. No PDF. Just math.
-
-The order is FIXED:
-    1. base       = strategy.calculate(usage)
-    2. discount   = discount.apply(base) if discount else 0
-    3. taxable    = base - discount
-    4. tax        = tax_calc.apply(taxable)
-    5. total      = taxable + tax.total
-"""
-
 from __future__ import annotations
 
 from datetime import date
@@ -37,6 +24,66 @@ def build_invoice(
     period_end: date,
     invoice_count_so_far: int,
 ) -> Invoice:
-    """Pure function. Returns an Invoice (id=None, status=DRAFT) ready to be persisted."""
-    # TODO Day 2
-    raise NotImplementedError("Day 2: implement build_invoice")
+    base_amount = strategy.calculate(usage_quantity)
+    
+    discount_amount = Money(0)
+    if discount:
+        discount_context = DiscountContext(
+            customer_id=subscription.customer_id,
+            invoice_count_so_far=invoice_count_so_far
+        )
+        discount_amount = discount.apply(base_amount, discount_context)
+        
+    taxable_amount = base_amount - discount_amount
+    
+    tax_result = tax_calc.apply(taxable_amount, tax_context)
+    
+    total_amount = taxable_amount + tax_result.total
+
+    line_items = []
+    
+    line_items.append(
+        InvoiceLineItem(
+            id=None,
+            invoice_id=None,
+            kind=LineItemKind.BASE,
+            amount=base_amount,
+            description=f"Base plan charges for {plan.name}"
+        )
+    )
+    
+    if discount_amount > 0:
+        line_items.append(
+            InvoiceLineItem(
+                id=None,
+                invoice_id=None,
+                kind=LineItemKind.DISCOUNT,
+                amount=-discount_amount,
+                description=f"Discount applied: {discount.name if hasattr(discount, 'name') else 'Promo'}"
+            )
+        )
+        
+    if tax_result.total > 0:
+        line_items.append(
+            InvoiceLineItem(
+                id=None,
+                invoice_id=None,
+                kind=LineItemKind.TAX,
+                amount=tax_result.total,
+                description=f"Tax charges ({tax_result.rate_summary})"
+            )
+        )
+
+    return Invoice(
+        id=None,
+        subscription_id=subscription.id,
+        customer_id=subscription.customer_id,
+        status=InvoiceStatus.DRAFT,
+        period_start=period_start,
+        period_end=period_end,
+        subtotal=base_amount,
+        discount_total=discount_amount,
+        tax_total=tax_result.total,
+        total_amount=total_amount,
+        line_items=line_items
+    )
